@@ -394,3 +394,61 @@ current_user.tasks.find(params[:id])
 
 ### 最初の管理者ユーザーを作る
 railsコンソールから管理者を作る
+
+```
+ User.create!(name: 'admin', email: 'admin@example.com', password: 'password', password_confirmation: 'password', admin: 'true')
+```
+
+# 4-6 データを絞り込む
+
+データを絞り込んで検索・更新を行う場合には以下の3点に意識してコードを組み立てる
+
+1. 起点
+2. 絞り込み条件
+3. 実行部分
+
+<検索例>
+```
+User.where(admin:true).first
+```
+
+## 絞り込みの起点
+起点: 検索や更新などのコードを書き出すスタート地点。基本的には、処理対象のモデルのクラスが起点となる。
+具体例としては、user.tasksを起点にした場合は、Taskクラス起点としてwhere(user_id: user.id)で絞り込むのと同じ効果が得られる。
+
+
+## 絞り込み条件
+絞り込み条件: 起点に対して絞り込みの条件を追加していく部分。
+クエリ用のメソッドを利用することができる(where,select etc...)
+クエリ用のメソッドは重ねがけすることができる。
+
+## 実行部分
+実行部分もメソッドは利用される(find, exists? etc...)
+
+# 4-7 タスク一覧を作成日の新しい順に表示する
+TasksControllerのindexアクションを変更する
+作成日の新しい順で検索する場合h、ORDER BY節をSQLにつければ良い。
+
+```
+  def index
+    @tasks = current_user.tasks.order(created_at: :desc)
+  end
+```
+
+# 4-8 scopを活用する
+scope: 複数のクエリをまとめたメソッド。
+低意義するにはTaskモデルに以下のように書く
+
+```
+scope :recent, -> { order(created_at: :desc)}
+```
+
+# 4-9 フィルタを使い重複を避ける
+
+「ログイン機能を作る」で出てきたフィルタを利用して重複を避けるようにしてみる。
+
+# 4-10 詳しい説明に含まれるURLをリンクとして表示する
+
+rails_autolinkというgemを利用してURLをリンクとして表示できるようにする。
+
+

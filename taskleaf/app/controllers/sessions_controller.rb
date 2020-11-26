@@ -8,7 +8,7 @@ class SessionsController < ApplicationController
   def create
     user = User.find_by(email: session_params[:email])
 
-    if user&.aurthentivaticate(session_params[:password])
+    if user&.authenticate(session_params[:password])
       session[:user_id] = user.id
       redirect_to root_path, notice: 'ログインしました'
     else
@@ -21,7 +21,7 @@ class SessionsController < ApplicationController
     redirect_to root_path, notice: 'ログアウトしました'
   end
 
-  pivate
+  private
 
   def session_params
     params.require(:session).permit(:email, :password)
