@@ -208,3 +208,85 @@ Specの内容としては以下
 4. ユーザーAが作成したタスクが表示されないことを確認するitの部分を記述していく。
 タスクが表示されている事を期待したいときは「expect(page).to have_content '最初のタスク'」というコードを書いた
 今回は表示されていないことを期待するので「have_no_content」というマッチャを利用して記述する
+
+# 5-10 beforeを利用した共通化
+
+「ユーザーAがログインした時」と「ユーザーBがログインした時」のcontextをspecに追加した。
+この2つのcontextをもう一度眺めてみる。
+
+どちらのbeforeでも、ログインする処理を行う。
+ログインするユーザーは異なっているが、コード自体の共通点が多い。
+そこで、書き方を見直して共通化してみる。
+
+Specでは、同じ階層にあるすべてのdescribe/context内で共通する処理については、そのdescribe/contextの１つ上の改装のbeforeの中に処理を書くことで、共通化ができる。
+まずは、「ユーザーAがログインしている時」というcontextのbeforeの中で行っているログイン処理を取り除いてみる。
+この状態でspecを実行するうと、テストが失敗する。
+
+これは、共通化するためにコードを移動した影響で、ユーザーBでログインするというテストケースに置いても、ユーザーAでログインしてしまっているため。
+この問題を解決するためには、共通のログイン処理野中の「具体的に何が」ログインする部分を「空欄」のようにしてこの「空欄」を埋めるコードだけをユーザーA側とユーザーB側それぞれに配置するとうまくいく。
+
+# 5-11 letを利用した共通化
+letは「before処理でテストケーススコープの変数に値を代入する」のに近いイメージで利用できる機能
+
+```
+let(定義名){定義の内容}
+```
+
+この仕組を利用してログイン処理の共通化を行う。
+- 共通のbeforeのログイン処理では、誰がログインするのかlogin_userがログインするという具合に変数を使って抽象的に書く。
+- ユーザーAでログインするcontextではletでlogin_userにユーザーAが入るようにする
+- ユーザーBでログインするcontextではletでlogin_userにユーザーBが入るようにする
+
+# 5-12 詳細表示機能のSpecを追加する
+
+# 5-13 shared_examplesを利用する
+
+現在だと、一覧表示機能のユーザーAがログインしているときのcontextの中に書かれているitと、詳細機能表示のユーザAがログインしているときのcontextの中に書かれているitのコードが全く同じ。
+このコードも共通してみる。
+
+RSpecではitを共通化する方法としてshered_exampleという仕組みを用意している。
+exampleとは、it等の期待する挙動を示す部分のこと。
+このexampleをいくつかまとめて名前をつけ、テストケース間でシェアできるというもの。
+
+# 5-16 Specが失敗した時の調査方法
+
+## 確認すべき情報
+「Failure/Error」の部分に着目する
+
+```
+Failures:
+
+  1) タスク管理機能 一覧画面表示機能 ユーザーAがログインしている時 behaves like ユーザーAが作成したタスクが表示される
+     Failure/Error: it {example(page).to have_content '最初のタスク'}
+       `example` is not available from within an example (e.g. an `it` block) or from constructs that run in the scope of an example (e.g. `before`, `let`, etc). It is only available on an example group (e.g. a `describe` or `context` block).
+
+
+
+     Shared Example Group: "ユーザーAが作成したタスクが表示される" called from ./spec/system/tasks_spec.rb:22
+     # ./spec/system/tasks_spec.rb:16:in `block (3 levels) in <top (required)>'
+
+  2) タスク管理機能 詳細表示機能 ユーザーAがログインしている時 behaves like ユーザーAが作成したタスクが表示される
+     Failure/Error: it {example(page).to have_content '最初のタスク'}
+       `example` is not available from within an example (e.g. an `it` block) or from constructs that run in the scope of an example (e.g. `before`, `let`, etc). It is only available on an example group (e.g. a `describe` or `context` block).
+
+
+
+     Shared Example Group: "ユーザーAが作成したタスクが表示される" called from ./spec/system/tasks_spec.rb:39
+     # ./spec/system/tasks_spec.rb:16:in `block (3 levels) in <top (required)>'
+```
+
+この場合は、「`example` is not available from within an example (e.g. an `it` block)」という表示が出ているので「
+`example`はexampleの中からは利用できません」という意味になる。
+（今回の場合はexpect(page)とかく部分をexample(page)と書いてしまっただけ)
+
+
+### 失敗場所とエラーメッセージを手がかりに原因を探す
+よくある原因の候補
+
+1. 検証エラーになるべきなのに、なっていない
+  a. 検証ロジックに問題がある
+  b. 登録処理に問題があり、パラメーターが適切にモデルに伝わらず、意図した登録処理が走っていない
+2. きちんと検証エラーになっているが、要素 #error_explanationがただしく表示されない
+  a. 正しくフォーム画面を表示しているが、検証エラーメッセージ表示部分に問題がある
+  b. 誤って一覧画面を表示するなど、正しくフォーム画面を再表示できていない
+3. Specが間違っており、適切に処理ができていない。
