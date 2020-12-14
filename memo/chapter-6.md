@@ -309,3 +309,59 @@ config.time_zone = 'Asia/Tokyo'
 
 ## Time.currentやData.currentを利用する
 現在時刻のActiveSupport：：TimeWithZoneオブジェクトを取得する方法としてTime.zone.nowを紹介したが、Time.currentでも同じ結果を得ることができる
+
+
+# 6-5 エラー処理のカスタマイズについて
+
+## Railsのエラー処理の概要
+
+
+# 6-6 Railsのログ
+
+## ログの利用方法
+アプリケーションログはターミナルの他にlog/development.logに出力される。
+これは環境により異なり、production環境で動かしていればlog/production.logに出力される。
+
+## 自分でログを出力する
+Railsが自動的に出力するログ以外にも、自分でコントローラやモデルなどからログを出力することができる。
+ログ出力は、Railsが用意しているloggerオブジェクトを通じて行う。
+
+例えば、デバッグ用にタスク作成時に保存したタスクの情報をログ出力させたい場合、次のように記載する
+
+```
+logger.debug "task: #{@task.attributes.inspec}"
+```
+
+そして、サーバーを立ち上げてタスクを新しく作成すると、ターミナルに以下のようなログが出力される
+
+```
+task: {"id"=>nil, "name"=>"ちびたんの写真を撮る", "description"=>"撮るのじゃ(｀・ω・´)ｼｬｷｰﾝ", "created_at"=>nil, "updated_at"=>nil, "user_id"=>6}
+```
+
+
+## ログレベル
+ログはログレベルごとにメソッドが違う。
+環境ごとに、どのログレベルまで出力するかを設定することができる。
+
+|ログレベル(数字)|ログレベル|意味|
+--|--|--
+|5|unknown|原因不明のエラー|
+|4|fatal|エラーハンドリング不可能な致命的エラー|
+|3|error|エラーハンドリング可能なエラー|
+|2|warn|警告|
+|1|info|通知|
+|0|debug|開発者向けデバッグ用詳細情報|
+
+## ログ(ロガー)の設定
+### ログレベルの設定
+ログレベルの設定は、config/environments/development.rbに、config.log_level = :warnを追記する。
+こうすると、warn以上のログのみを出力することができる。
+
+### アプリケーションログの特定のパラメータ値をマスクする。
+ログにはパスワードやカード情報など、セキュアな情報が含まれる場合、意図せず出力されてしまう可能性がある。
+ログに出力したくないパラメータをfillter_parameter_logging.rbのRails.applivarion.config.filter_parametersに設定すると、特定のパラメータの値を隠してログを出力することができる。
+
+例(この設定では、デフォルトでpasswordが設定されている)
+```
+Rails.application.config.filter_parameters += [:password]
+```
