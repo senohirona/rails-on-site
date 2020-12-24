@@ -619,3 +619,311 @@ CSPを設定するには、webサーバからHTTPヘッダに「Content-Security
 RailsではHTTPヘッダにCSPを組み込むための機能が用意されていて、そのための設定は「content_security_policy.rb」に記述する。
 標準ではコメントアウトされているため、コメントアウトを外し、プロダクトの性質に合わせて設定を調整する。
 
+# 6-8 アセットパイプライン
+javascript、CSS、画像などのリソース（アセット）を効率的に扱うための仕組みである「アセットパイプライン」日ついて解説する
+アセットパイプラインはsprockets-rails gemにて提供されるSprockets機能ので、デフォルトに有効になっている
+
+アセットパイプラインでは、開発者が書いたjsやcssを、最終的にアプリを使う上で都合の良い状態するためのパイプライン処理を行う
+
+<大まかな処理>
+1. 高級言語のコンパイル
+    CoffeeScript、SCSS、ERB、Slim等で記述されたコードをコンパイルして、ブラウザが認識できるjsファイルとして扱う
+2. アセットの連結
+    複数のjs、cssファイルを1つのファイルに連結することで読み込みに必要となるリクエスト数を減らし、全ての読み込みが終わるまでの時間を短縮する
+3. アセットの最小化
+    スペース、改行、コメントを削除してファイルを最小化し、通信量を節約する
+4. ダイジェストの付与
+    コードの内容からハッシュ値を算出してファイル名の末尾に付与する。
+    このようにすると、コードが変更されればファイル名が変更されるため、ブラウザのキャッシュの影響で修正が反映されないという問題を防ぐことができる
+
+## 環境による挙動の違い
+アセットパイプラインはdevelop環境とproduction環境で、それぞれの目的に対して便利に鳴るように挙動が異なる
+
+### development環境
+- 高級言語のコンパイル、ダイジェスト付与は逐一自動で行われる。開発者が自分でコンパイルする必要がなくスムーズに開発を行える
+- アセットの連結と最小化はおこなれ無い(デバッグのしやすさを考慮して)
+- アセットの連結を行っていないため、ページのソースを確認するとファイルす分のlink,scriptタグが生成される
+(ファイルの例はp268を参照)
+
+### production環境
+- アセットパイプラインの機能をフルに活用して、1つのjsファイル、1つのCSSファイルを生成しておき、それを配信するという形が基本。
+development環境とは異なり、高速化のためにアセットの連結・最小化が行われる。連結が行われているため、ペーぞのソースを確認すると次のようにjsファイルとcssファイルが１つずつ読み込まれている。
+
+
+## ブラウザにアセットを読み込ませる
+CSSやjs等のアセットは、通常web画面にアクセスしたブラウザが、サーバーから返されたHTML内にあるscriptタグ、linkタグ等のリンク情報を読み取ることによって読み込まれ、利用できるようになる。
+このようなリング情報をRailsではどのように実装するのか見ておく
+
+Railsではcssを読み込むにはstylesheet_link_tag,jsを読み込むにはjavascript_include_tagというヘルパーメソッドを使う。
+今回はapplication.html.slimで読み込みを行っている。
+
+```
+= stylesheet_link_tag 'application', media: 'all', 'data-turbolinks-track': 'reload'
+= javascript_pack_tag 'application', 'data-turbolinks-track': 'reload'
+```
+
+ここで読み込まれているapplication.cssとapplication.jsはアセットパイプラインによって連結された結果のファイル。
+
+## 連結結果のファイルをどうやって生成するか
+プログラマがapp/assets/application.cssやapp/assets/application.jsと言った「マニフェストファイルに記述する」
+マニフェストファイルには、管理しやすいように分類して別々のファイルとして作成した個別のCSSファイルやjsファイルをこのように連結したい、という指定を記述することになる。
+最終的に出力したapplication.cssなどのファイル毎に作成する
+
+## マニフェストファイルを記述する
+マニフェストファイルは新規にRailsのアプリケーションを作成した時点で、js,cssのそれぞれについて以下のマニフェストファイルが作成される
+
+- app/assets/application.css
+- app/assets/application.js
+
+マニフェストファイルに、特定の記法(ディレクティブ)で、結合する(取り込む)ソースコードを指定する。
+
+次に具体的な書き方を見ていく
+まずはjsのマニフェストファイルから
+
+**rails6からassets pipelineがデフォルト無効になり、jsはwebpackerで管理されるようになっている。なので今のコードと本に記載してある部分で違いがある点に注意**
+
+```
+require("@rails/ujs").start()
+require("turbolinks").start()
+require("@rails/activestorage").start()
+require("channels")
+```
+
+- require: 指定したjsファイルの内容を、記述した位置に取り込む。このアプリではrails-ujsやturbolinksといったjsを指定している
+- require_tree: 指定されたディレクトリ配下の全ファイルの内容を結合し、記述した位置に取り込む
+
+ここで記述されたjsファイルはマニフェストファイルの位置からはどこにも見当たらない。これらはアセットの「探索パス」の設定をもとにsprocketsが引き当てる。
+
+CSSも考え方は同じ。ただし、ディレクティブを記述する方法が異なる、
+このアプリではSassで書くように置き換えているので、Sassの@importを利用して記述していく。
+
+なお、sassでマニフェストファイルを記述する場合は、sprocketsの方法と併用しないこと。
+
+## アセットの探索パス
+マニフェストで指定するjsやcssのファイルは、アセットの探索パスの設定をもとに引き当てられる。
+デフォルトではapp/assets, lib.assets, vendor/assets が探索パスに設定されている。
+
+新しく探索パスを設定したい場合はRails.application.cofig.assets.pathsに探索パスを追加する
+通常はconfig/initialize/assets.rbの中で記述する
+
+どんなパスが探索対象になっているのかはコンソールから確認することができる
+
+```
+$ bin/rails c
+irb(main):002:0> puts Rails.application.config.assets.paths
+/Users/senohirona/src/github.com/rails-on-site/taskleaf/app/assets/config
+/Users/senohirona/src/github.com/rails-on-site/taskleaf/app/assets/images
+/Users/senohirona/src/github.com/rails-on-site/taskleaf/app/assets/stylesheets
+/Users/senohirona/.rbenv/versions/2.6.5/lib/ruby/gems/2.6.0/gems/actioncable-6.0.3.4/app/assets/javascripts
+/Users/senohirona/.rbenv/versions/2.6.5/lib/ruby/gems/2.6.0/gems/activestorage-6.0.3.4/app/assets/javascripts
+/Users/senohirona/.rbenv/versions/2.6.5/lib/ruby/gems/2.6.0/gems/actionview-6.0.3.4/lib/assets/compiled
+/Users/senohirona/.rbenv/versions/2.6.5/lib/ruby/gems/2.6.0/gems/turbolinks-source-5.2.0/lib/assets/javascripts
+/Users/senohirona/src/github.com/rails-on-site/taskleaf/node_modules
+/Users/senohirona/.rbenv/versions/2.6.5/lib/ruby/gems/2.6.0/gems/popper_js-1.16.0/assets/javascripts
+/Users/senohirona/.rbenv/versions/2.6.5/lib/ruby/gems/2.6.0/gems/bootstrap-4.5.3/assets/stylesheets
+/Users/senohirona/.rbenv/versions/2.6.5/lib/ruby/gems/2.6.0/gems/bootstrap-4.5.3/assets/javascripts
+```
+
+# 6-9 production環境でアプリケーションを立ち上げる
+本番環境でアプリケーションを動かすための基本的な事柄を解説していく
+本来は、アプリケーションを本番稼働させる場合は、動作させるのはサーバー上であり、デプロイ操作はCapistoranoなどで自動化することが多い。
+ここでは、ローカルPC上でRailsのproduction環境の扱い方を解説していく
+
+## アセットのプリコンパイル
+production環境では、リクエストを高速に処理できるように、予めアセットパイプラインを実行して静的ファイルを生成しておき、生成済みのファイルをリクエストのたびに配信する。
+プリコンパイル: 「予めアセットパイプラインを実行して静的ファイルを作成する」処理のこと
+
+prroduction環境ではこのプリコンパイルを必ず実行する必要がある。
+
+プリコンパイルはrailsのコマンドで用意されている。
+
+プリコンパイルを実行したことにより、public/assetsディレクトリ配下にコンパイルされたjs,cssファイルが生成される
+
+
+```
+$ bin/rails assets:precompile
+yarn install v1.22.0
+[1/4] 🔍  Resolving packages...
+success Already up-to-date.
+✨  Done in 0.50s.
+yarn install v1.22.0
+[1/4] 🔍  Resolving packages...
+success Already up-to-date.
+✨  Done in 0.42s.
+I, [2020-12-24T13:49:42.523441 #50651]  INFO -- : Writing /Users/senohirona/src/github.com/rails-on-site/taskleaf/public/assets/manifest-b4bf6e57a53c2bdb55b8998cc94cd00883793c1c37c5e5aea3ef6749b4f6d92b.js
+I, [2020-12-24T13:49:42.523718 #50651]  INFO -- : Writing /Users/senohirona/src/github.com/rails-on-site/taskleaf/public/assets/manifest-b4bf6e57a53c2bdb55b8998cc94cd00883793c1c37c5e5aea3ef6749b4f6d92b.js.gz
+I, [2020-12-24T13:49:42.524112 #50651]  INFO -- : Writing /Users/senohirona/src/github.com/rails-on-site/taskleaf/public/assets/application-e8d55915950a5e38080539476708e827f1f19dc4f6b7a7beae014c0deaa00888.css
+I, [2020-12-24T13:49:42.524500 #50651]  INFO -- : Writing /Users/senohirona/src/github.com/rails-on-site/taskleaf/public/assets/application-e8d55915950a5e38080539476708e827f1f19dc4f6b7a7beae014c0deaa00888.css.gz
+I, [2020-12-24T13:49:42.525070 #50651]  INFO -- : Writing /Users/senohirona/src/github.com/rails-on-site/taskleaf/public/assets/sessions-04024382391bb910584145d8113cf35ef376b55d125bb4516cebeb14ce788597.css
+I, [2020-12-24T13:49:42.541999 #50651]  INFO -- : Writing /Users/senohirona/src/github.com/rails-on-site/taskleaf/public/assets/sessions-04024382391bb910584145d8113cf35ef376b55d125bb4516cebeb14ce788597.css.gz
+I, [2020-12-24T13:49:42.542840 #50651]  INFO -- : Writing /Users/senohirona/src/github.com/rails-on-site/taskleaf/public/assets/tasks-04024382391bb910584145d8113cf35ef376b55d125bb4516cebeb14ce788597.css
+I, [2020-12-24T13:49:42.543191 #50651]  INFO -- : Writing /Users/senohirona/src/github.com/rails-on-site/taskleaf/public/assets/tasks-04024382391bb910584145d8113cf35ef376b55d125bb4516cebeb14ce788597.css.gz
+Everything's up-to-date. Nothing to do
+```
+
+## 静的ファイルの配信サーバーを設定する
+Railsには、静的なファイルを配信する機能があり、publicディレクトリ下のファイルを配信してくれる。
+
+本番環境ではｍ静的ファイルの配信はWebサーバーに担わせることが一般的なので、Railsには静的ファイル配信機能をon/offする設定が存在する。
+production環境は基本的にoffに設定されている。
+
+今回はonに設定を変更する
+on/offの設定はproduction.rbに記載されている
+変数`RAILS_SERVE_STATIC_FILES` が存在しない限りfalseになるように設定されている。
+
+```
+  # Disable serving static files from the `/public` folder by default since
+  # Apache or NGINX already handles this.
+  config.public_file_server.enabled = ENV['RAILS_SERVE_STATIC_FILES'].present?
+```
+
+これをtrueに変えたいので~/.zshrcに環境変数を追加する
+(一時的なものなので、本を一通り終わらせた後は削除する)
+
+```
+export RAILS_SERVE_STATIC_FILES=1
+```
+
+## production環境用のデータベースを作成する
+データベースを作成するには、development環境やtest環境と同じくbin/rails db:migrateコマンドを用いる
+bin/rails db:migrateコマンドはデータベース設定ファイル(database.yml)の設定内容に従って動作するので、先にこちらを確認する。
+
+```
+production:
+  <<: *default
+  database: taskleaf_production
+  username: taskleaf
+  password: <%= ENV['TASKLEAF_DATABASE_PASSWORD'] %>
+```
+
+設定自体は問題ないが、このままデータベースを作成しようとしても上手く行かない。
+次の2つの準備が必要
+
+- postgresqlにtaskleafというユーザー(ROLE)を追加する
+- taskleafユーザーがデータベースに接続する際に使うパスワードを、環境変数「TASKLEAF_DATABASE_PASSWORD」で取得できるようにする
+
+### postgresqlにtaskleafというユーザー(ROLE)を追加する
+
+```
+$ createuser -d -P taskleaf
+Enter password for new role: [パスワードを入力。ここでは'passwordとする']
+Enter it again: [再度パスワードを入力]
+```
+### taskleafユーザーがデータベースに接続する際に使うパスワードを、環境変数「TASKLEAF_DATABASE_PASSWORD」で取得できるようにする
+
+設定したパスワードを環境変数「TASKLEAF_DATABASE_PASSWORD」にセットしてconfig/database.ymlから取得できるようにする。
+
+~/.zshrc
+```
+export TASKLEAF_DATABASE_PASSWORD=password
+```
+
+これで準備が整ったのでdb:createとdb:migrateを実行する
+
+```
+$ RAILS_ENV=production bin/rails db:create db:migrate
+Created database 'taskleaf_production'
+== 20201118102721 CreateTasks: migrating ======================================
+-- create_table(:tasks)
+   -> 0.0044s
+== 20201118102721 CreateTasks: migrated (0.0045s) =============================
+
+== 20201123011521 ChangeTasksNameNotNull: migrating ===========================
+-- change_column_null(:tasks, :name, false)
+   -> 0.0010s
+== 20201123011521 ChangeTasksNameNotNull: migrated (0.0010s) ==================
+
+== 20201124010758 CreateUsers: migrating ======================================
+-- create_table(:users)
+   -> 0.0064s
+== 20201124010758 CreateUsers: migrated (0.0064s) =============================
+
+== 20201124085400 AddAdminToUsers: migrating ==================================
+-- add_column(:users, :admin, :boolean, {:default=>false, :null=>false})
+   -> 0.0012s
+== 20201124085400 AddAdminToUsers: migrated (0.0012s) =========================
+
+== 20201125103453 AddUserIdToTasks: migrating =================================
+-- execute("DELETE FROM tasks;")
+   -> 0.0007s
+-- add_reference(:tasks, :user, {:null=>false, :index=>true})
+   -> 0.0029s
+== 20201125103453 AddUserIdToTasks: migrated (0.0038s) ========================
+```
+
+## config/master.keyが存在する事を確認する
+productionモードでアプリケーションを利用する場合、Railsがproduction環境用の秘密情報を複合するために利用する鍵の情報が必要になる。
+この鍵はconfig/master.keyファイルもしくは環境変数「RAILS_MASTER_KEY」。
+
+rails newをしている場合には自動的にconfig/master.keyが生成される
+(あるのを確認)
+
+## productionモードでサーバを起動する
+ここまでで設定は終了
+オプション「--environment=production」を追加してサーバをproductionモードに起動してみる。
+
+```
+$ bin/rails s --environment=production
+
+=> Booting Puma
+=> Rails 6.0.3.4 application starting in production
+=> Run `rails server --help` for more startup options
+Puma starting in single mode...
+* Version 4.3.6 (ruby 2.6.5-p114), codename: Mysterious Traveller
+* Min threads: 5, max threads: 5
+* Environment: production
+* Listening on tcp://0.0.0.0:3000
+Use Ctrl-C to stop
+^C- Gracefully stopping, waiting for requests to finish
+```
+
+ログイン画面が表示されればOK
+
+## production環境用の秘密情報の管理
+credentials: 特定の方式で管理されるproduction環境用の秘密情報。
+秘密情報を構造化して記述してリポジトリで管理できるようにするが、このときリポジトリに入る内容はある1つのキーで暗号化される。そして、そのキーはリポジトリの外で管理しておき、アプリケーションに伝えて、アプリケーションが複合して利用できるようにする。
+これによって、多くの秘密情報を一括で簡単に管理できるにも関わらず、秘密情報の漏洩を防ぐ事ができるようになる
+
+## 秘密情報の暗号化・複合
+production環境用の秘密情報(credentials)はconfig/credentials.yml.encに記述する。このファイルは暗号化された状態で保存される。
+開発者がこのファイルの内容を編集するには、Railsの用意している専用のコマンドを通じて行う。
+Railsアプリケーションがproduction環境で起動された際には、master.keyファイルもしくはRAILS_MASTER_KEY環境変数からキー情報を取り出して秘密情報を内部的に複合して利用する
+
+### credential.yml.encの初期状態を見てみる
+catコマンドで中身を確認できる
+
+```
+$ cat config/credentials.yml.enc
+M4gK/NmWQqC1S6biV5qjg24LIAVnz5DKG6UP7S8t5qLS6J3IRBfSAFNSGsEhQNwWsPJwy6RmeviNpNUdcokSW6kRZRIKqddAB2OosFUQ0nlrwYo3Wi1HbY3jsLMJqn4T2BwNmTL5eDzW3ZWs05M1JzthJhuOkbmb+kRQvCmIM7P1g99p0moNYi6CvxXDNIcVgQll28/V1JvZJeT0JmVdeBeZVAkGZ91cjDIc/o8P/S+VZrRp3ArapExIghgZcYGVb7GwjsZVeg7Xv3AScp4Z4Lb+/FZxH0dUdOEfOqlyTj58jykgiDg83ZALpgh2iXrcli7Tf0JoUpT9qK5TeWISgQeBOrSfcjVbXDLfhWNu8FbEkteiw1InAe8U7zJ82ItUC0FR7m6/NpYra+xeqERp5KdweU1EZEl294BC--vPBAkumohkH2aERY--3tGW+0CYipP6JddJNmuy7Q==%
+```
+
+暗号化されている
+複合された内容を確認するには以下コマンドを利用する
+
+```
+$ bin/rails credentials:show
+# aws:
+#   access_key_id: 123
+#   secret_access_key: 345
+
+# Used as the base secret for all MessageVerifiers in Rails, including the one protecting cookies.
+secret_key_base: 681aa2d5223dd9fb7808790dcbc543f3e4996a0cdec43b2c96ce7b5f529ce144b44d81728af5a2770a37584d30725e49bc9d696153f1bb092fa177420d497568
+```
+
+### credentialsの編集
+編集するには以下コマンド利用する
+
+```
+$ bin/rails credentials:edit
+```
+
+## アプリケーションからcredentialsを参照する
+railsコンソールから以下のようなコマンドで確認が可能
+
+```
+$ bin/rails c
+Running via Spring preloader in process 53025
+Loading development environment (Rails 6.0.3.4)
+irb(main):001:0> Rails.application.credentials.secret_key_base
+=> "681aa2d5223dd9fb7808790dcbc543f3e4996a0cdec43b2c96ce7b5f529ce144b44d81728af5a2770a37584d30725e49bc9d696153f1bb092fa177420d497568"
+```
