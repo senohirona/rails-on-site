@@ -62,6 +62,7 @@ if params[:back].present?
     return
 end
 ```
+
 # 7-2 一覧画面に検索機能を追加する
 タスク一覧のような一覧画面だけでは、扱うデータの件数が増えてくると不便になる。
 ここでは、一覧画面に検索機能を追加する方法を解説する、
@@ -150,3 +151,34 @@ Taskモデルに次のような実装を追加する
 ransackable_attributesには、検索対象にすることを許可するカラムを指定する。
 名称(name)と作成日時(created_at)を指定することで、それ以外のカラムについての検索条件がransackに渡されても無視されるようになる。
 ransackable_associationsは検索条件煮含める関連を指定できる。このメソッドを空の配列を返すようにオーバーライドすることで、検索条件に意図しない関連を含めないようにすることができる。
+
+# 7-3 一覧画面にソート機能を追加する
+ユーザーが選んだ人気の項目でソートできるような機能を実装する。
+具体的には、名称の降順と昇順をユーザーが指定してソートできるようにする。
+ransackにはソートについてのヘルパーメソッドが用意されており、簡単にソート機能を実装できる。
+
+まずはコントローラを変更する。
+以前まではrecentスコープでソートをかけていたが、これを外す
+
+tasks_controller.rb
+```
+  def index
+    @q = current_user.tasks.ransack(params[:q])
+    @tasks = @q.result(distinct: true)
+  end
+```
+
+続いてビューを、ユーザーがソート方法を指定できるように変更する。
+
+index.html.slim
+```
+.mb-3
+table.table.table-hover
+  thread.thread-default
+    tr
+      th= sort_link(@q, :name)
+      th= Task.human_attribute_name(:created_at)
+```
+
+ransackの提供するsort_linkヘルパーを用いている。こうすることで、ソート操作ができる見出し部分を表示することができる。
+sort_linkの第1引数にはコントローラでransackメソッドを呼び出して得られたRansack::Searchオブジェクト(ここでは@q)、第2引数にはソートを行う対象のカラム(ここでは「名称」を表す:name)を指定する。
