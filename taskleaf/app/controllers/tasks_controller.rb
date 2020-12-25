@@ -25,6 +25,13 @@ class TasksController < ApplicationController
   def create
     @task = current_user.tasks.new(task_params)
 
+    # 「戻る」ボタンが押された場合は、現在のタスクの内容を引き継いだ状態で新規登録のフォーム画面を表示する
+    if params[:back].present?
+      # 新規登録フォームの画面を表示する処理はここで定義している
+      render :new
+      return
+    end
+
     if @task.save
       logger.debug "task: #{@task.attributes.inspect}"
       redirect_to @task, notice: "タスク「#{@task.name}」を登録しました。"
@@ -37,6 +44,13 @@ class TasksController < ApplicationController
     task = current_user.tasks.find(params[:id])
     task.destroy
     redirect_to tasks_url, notice: "タスク「#{task.name}」を削除しました。"
+  end
+
+  def confirm_new
+    # 新規登録画面から受け取ったパラメータをもとにタスクイブジェクトを作成して、@taskに代入
+    @task = current_user.tasks.new(task_params)
+    # 問題があれば検証エラーメッセージとともに出力する
+    render :new unless @task.valid?
   end
 
   private
