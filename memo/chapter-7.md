@@ -182,3 +182,110 @@ table.table.table-hover
 
 ransackの提供するsort_linkヘルパーを用いている。こうすることで、ソート操作ができる見出し部分を表示することができる。
 sort_linkの第1引数にはコントローラでransackメソッドを呼び出して得られたRansack::Searchオブジェクト(ここでは@q)、第2引数にはソートを行う対象のカラム(ここでは「名称」を表す:name)を指定する。
+
+# 7-5 ファイルをアップロードしてモデルに添付する
+タスクへの画像ファイルが添付できるように機能を追加する。
+
+
+## Active Storage
+rails5.2からActive storageというファイル管理gemが同梱され、クラウドストレージサービス(S3, GCS 等)へファイルをアップロードして、データベース上でActiveRecordモデルに紐付けるということが簡単にできるようになった。
+
+## Active Storageの準備
+ActiveStorageをアプリケーションで使うための準備をする
+以下コマンドを実行するとマイグレーションファイルが作成される。
+
+```
+$ bin/rails active_storage:install
+Copied migration 20201225094128_create_active_storage_tables.active_storage.rb from active_storage
+```
+
+このマイグレーションは、ActiveStorageが利用する2つのテーブル、active_storage_blobsとactive_storage_attachmentsを作成する。
+2つのモデルは、それぞれActiveStorage::BlobとActiveStorage::Attachementというモデルに紐付いている。
+
+ActiveStorage::Blob : 添付されたファイルに対するモデル。ファイルの実態をデータベース外で管理することを前提としており、それ以外の情報、識別key、ファイル名、ファイルのメタデータ、サイズなどを管理する。
+
+ActiveStorage::Attachement : ActiveStorage::Blobとアプリ内の様々なモデルを関連付ける中間テーブルに当たるモデル。一般的な多対多の中間テーブルに似ているが、アプリ内の様々なモデルと紐付けられるように、関連付けるモデルのクラス名や連携するFKカラム名をFK値とともに保持する。
+一方、ActiveStorage::Blobとは直接的にidのみで紐付ける。
+
+今回はTaskとActiveStorage::Blobを紐付けることになる。
+
+先程生成されたマイグレーションファイルをDBに反映するため、migrateコマンドを実行する。
+
+```
+$ bin/rails db:migrate
+== 20201225094128 CreateActiveStorageTables: migrating ========================
+-- create_table(:active_storage_blobs, {})
+   -> 0.0611s
+-- create_table(:active_storage_attachments, {})
+   -> 0.0150s
+== 20201225094128 CreateActiveStorageTables: migrated (0.0763s) ===============
+```
+
+次に、添付したファイルの実体を管理する場所についての設定を行う。
+設定はRails.application.config.active_storage.serviceにファイルを管理する場所の名前を与え、その名前に対する設定をconfig/storage.ymlに定義することで行う。
+
+デフォルトでは、develop環境のファイル管理書はlocalとなっている。
+
+```
+  # Store uploaded files on the local file system (see config/storage.yml for options).
+  config.active_storage.service = :local
+```
+
+次にこのlocalの設定が定義されているconfig/storage.ymlを見てみる。
+
+```
+local:
+  service: Disk
+  root: <%= Rails.root.join("storage") %>
+```
+
+localという設定はデフォルトで用意されているファイルの管理場所で、ローカル環境にファイルを格納する設定になっている。
+今回はこの設定をそのまま利用する。
+
+## タスクモデルに画像を添付できるようにする
+まずはTaskモデルを編集する
+
+```
+class Task < ApplicationRecord
+    has_one_attached :image
+```
+
+has_one_attachedというメソッドを使って、1つのタスクに1つの画像を紐付けること、その画像をTaskモデルからimageとして呼ぶことを指定している。
+
+次にビューを編集する
+登録前に確認画面を表示する機能を取り外す。
+確認機能追加の際に追加したフォーム関係のコードを削除し、代わりに以前のようにformというパーシャルを利用するように変更する。
+
+```
+h1 タスクの新規登録
+
+.nav.justify-content-end
+  = link_to '一覧', tasks_path, class: 'nav-link'
+
+= render partial: 'form', locals: {task: @task}
+```
+
+```
+  .form-group
+    = f.label :image
+    = f.file_field :image, class: 'form-control'
+  = f.submit nil, class: 'btn btn-primary'
+```
+
+次に画像が登録できるようにTasksControllerのtask_paramsメソッドを変更し、許可するパラメータのキーとして:image を追加する。
+
+```
+  def task_params
+    params.require(:task).permit(:name, :description, :image)
+  end
+```
+
+次に登録された画像を表示する機能を追加する。
+
+```
+      td= auto_link(simple_format(h(@task.description), {}, sanitize: false, wrapper_tag: "div"))
+    tr
+      th= Task.human_attribute_name(:image)
+      td= image_tag @task.image if @task.image.attached?
+    tr
+```
