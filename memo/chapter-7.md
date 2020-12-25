@@ -62,3 +62,91 @@ if params[:back].present?
     return
 end
 ```
+# 7-2 一覧画面に検索機能を追加する
+タスク一覧のような一覧画面だけでは、扱うデータの件数が増えてくると不便になる。
+ここでは、一覧画面に検索機能を追加する方法を解説する、
+今回は、検索機能の実装時に利用されることの多いransackというgemを利用する
+
+## 名称による検索
+ransackをインストールすると、検索を行うためのransackメソッドがモデルに追加される。
+
+tasks_controller.rb
+```
+def index
+  @q = current_user.tasks.ransack(params[:q])
+  @tasks = @q.result(distinct: true).recent
+end
+```
+
+次にタスク一覧画面に検索フォームを実装する
+「link_to'新規作成'」の間に、ransackの提供するヘルパーsearch_form_forを使って検索用のフォームを追加する。
+
+```
+= search_for @q, class: 'mb-5' do |f|
+  .form-group.row
+    = f.label :name_cont, '名称', class: 'col-sm-2 col-form-label'.col-sm-10
+      = f.search_field :name_cont, class: 'form-control'
+  .form-group
+    = f.submit class: 'btn btn-outline-primary'
+```
+
+ransackを利用する際は、検索フィールドの名前の一定のルールで命名する。
+ここでは「名称に〇〇を含む」という検索を実装したいため、ビュー内の名称フィールド名を「name_cont」とした。
+
+
+## 検索時のSQLの確認と検索マッチャー
+検索時に実行されたSQLを、コンソールのログから確認してみる。
+
+```
+Task Load (0.4ms)  SELECT DISTINCT "tasks".* FROM "tasks" WHERE "tasks"."user_id" = $1 AND "tasks"."name" ILIKE '%ちびたん%' ORDER BY "tasks"."created_at" DESC
+```
+
+postgreSQLのILIKEが使われているのがわかる。
+これは、先程検索フォームで「name_cont」という名前を指定したから。
+_contをつけると、検索文字列を含むものを検索する。
+
+## 登録日時による検索
+登録日時による検索もできるようにする。
+指定された日以降に登録されたタスクを検索可能にする。
+
+```
+  .form-group.row
+    = f.label :created_at_gteq, '登録日時', class: 'col-sm-2 col-form-label'
+    .col=sm-10
+      = f.search_field :created_at_gteq, class: 'form-control'
+```
+
+追加した登録日時フィールドでは、_gteqという検索マッチャーを利用している。
+これは「該当の項目がフォームに入力した値と同じか、それより大きいこと」を条件にしたいときに使う。
+
+コンソールログからSQLのみ抜粋
+
+```
+Task Load (0.3ms)  SELECT DISTINCT "tasks".* FROM "tasks" WHERE "tasks"."user_id" = $1 AND "tasks"."created_at" >= '2020-11-29 15:00:00' ORDER BY "tasks"."created_at" DESC
+```
+
+最後に単語と日時で検索した際のSQLを見てみる
+
+```
+Task Load (0.4ms)  SELECT DISTINCT "tasks".* FROM "tasks" WHERE "tasks"."user_id" = $1 AND ("tasks"."name" ILIKE '%ちびたん%' AND "tasks"."created_at" >= '2020-11-29 15:00:00') ORDER BY "tasks"."created_at" DESC
+```
+
+## 検索条件を絞る
+今は名称と登録日時に関する検索しかできないが、実はユーザーが意図的にパラメータを加工すると、他のカラムを使った検索もできてしまう。
+たとえばdescription_contというキーのパラメータを送れば、詳しい説明についての検索も行えてしまう。
+そこで、ransackを利用する際は、検索に利用して良いカラムの範囲を制限しておくと良い。
+
+Taskモデルに次のような実装を追加する
+```
+    def self.ransackable_attributes(auth_object = nil)
+      %w[name created_at]
+    end
+
+    def self.ransackable_associations(auth_object = nil)
+      []
+    end
+```
+
+ransackable_attributesには、検索対象にすることを許可するカラムを指定する。
+名称(name)と作成日時(created_at)を指定することで、それ以外のカラムについての検索条件がransackに渡されても無視されるようになる。
+ransackable_associationsは検索条件煮含める関連を指定できる。このメソッドを空の配列を返すようにオーバーライドすることで、検索条件に意図しない関連を含めないようにすることができる。
